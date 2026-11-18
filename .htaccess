@@ -1,0 +1,9 @@
+# Comic-Planer
+Options -Indexes
+<IfModule mod_mime.c>
+  AddType application/manifest+json .webmanifest
+  AddType font/woff2 .woff2
+</IfModule>
+<FilesMatch "^\.(?!htaccess$)|\.(md|txt|sql|lock|log|json)$|^LICENSE$">
+  Require all denied
+</FilesMatch>

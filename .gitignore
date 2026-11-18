@@ -1,0 +1,17 @@
+# Zugangsdaten der eigenen Installation – niemals einchecken
+inc/config.php
+
+# Private Daten: Sicherungen, VLB-TIX-Exporte, Notiz-Exporte
+_archiv/
+*.json
+!manifest.webmanifest
+*.xlsx
+*.xls
+*.csv
+*.zip
+
+# System
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
