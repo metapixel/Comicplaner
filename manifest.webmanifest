@@ -1,0 +1,16 @@
+{
+  "name": "Comic-Planer",
+  "short_name": "Comics",
+  "description": "Monatsplanung für die VLB-TIX-Merkliste",
+  "lang": "de",
+  "start_url": "index.php",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F4E9DB",
+  "theme_color": "#6B3A5B",
+  "icons": [
+    {"src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "assets/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}
