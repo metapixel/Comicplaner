@@ -262,7 +262,7 @@ section.series.closed .caret{transform:rotate(-90deg)}
 .sacts{margin-left:auto;display:none;gap:12px}
 section.series:not(.closed) .sacts{display:flex}
 .sitems{border-top:1px dashed var(--line);padding:4px 0}
-.citem{display:grid;grid-template-columns:48px 1fr auto auto;gap:10px;align-items:center;padding:6px 14px;cursor:pointer}
+.citem{display:grid;grid-template-columns:48px 1fr auto;gap:10px;align-items:center;padding:6px 14px;cursor:pointer}
 .citem:hover{background:#F8F1EA}
 .citem .vol{font-family:"Bricolage Grotesque";font-weight:700;color:var(--plum);text-align:right}
 .citem .cname{min-width:0}
@@ -285,7 +285,6 @@ body.is-offline #importBtn,body.is-offline #addBtn{opacity:.45}
   body.view-col .layout{grid-template-columns:1fr}
   .letters{flex-direction:row;flex-wrap:wrap}
   .citem{grid-template-columns:34px 1fr auto;padding:7px 10px}
-  .citem [data-edit]{display:none}
   .viewseg button{padding:8px 10px}
 }
 body.view-col #range{display:none}
@@ -303,3 +302,8 @@ body.view-col #range{display:none}
 @media (max-width:640px){ .utbl th:nth-child(4),.utbl td:nth-child(4){display:none} }
 
 .appfoot a,.ver a{color:inherit}
+
+/* ---------- 2.1: Filter-Chip in der Sammlung, Fehlerzeile mit Link ---------- */
+.hint .chip.filt{text-decoration:none;font-size:12.5px;padding:4px 10px;color:var(--ink)}
+.hint .chip.filt.on{color:#fff}
+#dnbErr .linkbtn{margin:0 0 0 6px}

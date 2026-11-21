@@ -8,7 +8,7 @@
  * Netz zuerst, Zwischenspeicher nur als Rückfall (offline).
  * Gespeichert werden die App-Seite und die statischen Dateien – nie die API-Daten
  * (die legt die App selbst im Gerät ab). */
-const CACHE = "comicplaner-2.0.1";
+const CACHE = "comicplaner-2.1.0";
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));

@@ -43,12 +43,12 @@ const ui = {
   q:"", pub:"", range:"ab",
   statuses:new Set(["interessant","kaufen","bestellt","da"]),
   open:new Set(), closed:new Set(), view:"liste", maybe:false, table:false,
-  colStatuses:new Set(["da","bestellt","kaufen"]), colOpen:new Set()
+  colStatuses:new Set(["da","bestellt","kaufen"]), colOpen:new Set(), hideComplete:false
 };
 try{ const s=JSON.parse(localStorage.getItem(UI_KEY)||"null");
-  if(s){ ui.range=s.range||ui.range; if(s.view) ui.view=s.view; ui.maybe=!!s.maybe; if(Array.isArray(s.statuses)) ui.statuses=new Set(s.statuses); if(Array.isArray(s.closed)) ui.closed=new Set(s.closed); if(Array.isArray(s.colStatuses)) ui.colStatuses=new Set(s.colStatuses); }
+  if(s){ ui.range=s.range||ui.range; if(s.view) ui.view=s.view; ui.maybe=!!s.maybe; if(Array.isArray(s.statuses)) ui.statuses=new Set(s.statuses); if(Array.isArray(s.closed)) ui.closed=new Set(s.closed); if(Array.isArray(s.colStatuses)) ui.colStatuses=new Set(s.colStatuses); ui.hideComplete=!!s.hideComplete; }
 }catch(e){}
-function saveUi(){ try{ localStorage.setItem(UI_KEY, JSON.stringify({range:ui.range,statuses:[...ui.statuses],closed:[...ui.closed],view:ui.view,maybe:ui.maybe,colStatuses:[...ui.colStatuses]})); }catch(e){} }
+function saveUi(){ try{ localStorage.setItem(UI_KEY, JSON.stringify({range:ui.range,statuses:[...ui.statuses],closed:[...ui.closed],view:ui.view,maybe:ui.maybe,colStatuses:[...ui.colStatuses],hideComplete:ui.hideComplete})); }catch(e){} }
 
 const $ = s=>document.querySelector(s);
 const esc = s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -422,7 +422,7 @@ function detailHtml(it){
     </div>
     <textarea data-note placeholder="Notiz, z. B. wo bestellt, Variant-Cover, Budget …">${esc(it.note||"")}</textarea>
     ${hist?`<ul class="hist">${hist}</ul>`:""}
-    <div class="detail-actions"><label class="chk"><input type="checkbox" data-readchk ${it.read?"checked":""}> gelesen</label><span style="flex:1"></span><button class="copy" data-edit>Bearbeiten</button><button class="copy" data-del>Titel entfernen</button></div>
+    <div class="detail-actions"><label class="chk"><input type="checkbox" data-readchk ${it.read?"checked":""}> gelesen</label><span style="flex:1"></span><button class="copy" data-edit>Bearbeiten</button></div>
   </div>`;
 }
 
@@ -449,8 +449,6 @@ $("#main").addEventListener("click",e=>{
   const isbn=item.dataset.isbn;
   const sb=e.target.closest(".seg button");
   if(sb){ setStatus(isbn,sb.dataset.s); return; }
-  const del=e.target.closest("[data-del]");
-  if(del){ confirmDelete(isbn); return; }
   if(e.target.closest("[data-edit]")){ showEdit(isbn); return; }
   if(e.target.closest("[data-readchk]")){ setRead(isbn, e.target.closest("[data-readchk]").checked); return; }
   if(e.target.closest("[data-row]")){
@@ -725,10 +723,12 @@ function showAddDialog(){
     <div class="actions dnbactions" id="dnbActions" hidden>
       <label class="chk">Status <select id="dnbStatus">${STATUS.filter(x=>x.k!=="verworfen").map(x=>`<option value="${x.k}">${x.l}</option>`).join("")}</select></label>
       <span style="flex:1"></span>
+      <button class="btn ghost" type="button" data-manual>Manuell anlegen</button>
       <button class="btn ghost" id="cancel" type="button">Schließen</button>
       <button class="btn" id="dnbAdd" type="button" disabled>Hinzufügen</button>
     </div>
-    <div class="actions" id="dnbClose"><button class="btn ghost" type="button" id="cancel2">Schließen</button></div>`);
+    <div class="actions" id="dnbClose"><button class="btn ghost" type="button" data-manual>Manuell anlegen</button><span style="flex:1"></span><button class="btn ghost" type="button" id="cancel2">Schließen</button></div>`);
+  $("#modal").querySelectorAll("[data-manual]").forEach(b=>b.onclick=manualFromSearch);
   dnb.sel.clear(); dnb.items=[]; dnb.total=0;
   const q=$("#dnbQ"); q.value=dnb.q; setTimeout(()=>q.focus(),50);
   $("#dnbForm").addEventListener("submit",e=>{ e.preventDefault(); dnbSearch(q.value.trim(),1); });
@@ -754,13 +754,14 @@ async function dnbSearch(q,start,append=false){
     dnb.items=append?dnb.items.concat(items.filter(x=>!dnb.items.some(y=>y.isbn===x.isbn))):items;
     dnb.total=r.total; dnb.start=start;
     dnbRender();
-  }catch(e){ $("#dnbErr").textContent=dbErr(e); if(!append) $("#dnbRes").innerHTML=""; }
+  }catch(e){ $("#dnbErr").innerHTML=esc(dbErr(e))+` <button class="linkbtn" type="button" data-manual2>Titel stattdessen manuell anlegen</button>`;
+    $("#dnbErr [data-manual2]").onclick=manualFromSearch; if(!append) $("#dnbRes").innerHTML=""; }
   dnb.busy=false; $("#dnbGo").disabled=false;
 }
 function dnbRender(){
   const res=$("#dnbRes");
   $("#dnbActions").hidden=!dnb.items.length; $("#dnbClose").hidden=!!dnb.items.length;
-  if(!dnb.items.length){ res.innerHTML=`<p class="hint">Keine passenden gedruckten Ausgaben mit ISBN gefunden.</p>`; return; }
+  if(!dnb.items.length){ res.innerHTML=`<p class="hint">Keine passenden gedruckten Ausgaben mit ISBN gefunden – über „Manuell anlegen“ kannst du den Titel selbst eintragen.</p>`; return; }
   const sorted=dnb.items.slice().sort((a,b)=>(b.month||"").localeCompare(a.month||"")||a.title.localeCompare(b.title,"de",{numeric:true}));
   // ähnliche Titel auf der Liste (gleicher Titel, andere ISBN)
   const keys=new Map(); for(const it of items.values()){ const k=it.titleKey||titleKey(it.title,it.subtitle); if(k) keys.set(k,it); }
@@ -808,10 +809,17 @@ function renderCollection(all){
   const vis=all.filter(it=>{ if(ui.pub && it.publisher!==ui.pub) return false; return q ? qMatch(it,q) : ui.colStatuses.has(it.status||"interessant"); });
   const groups=new Map();
   for(const it of vis){ it._g=groupOf(it); const k=it._g.s; (groups.get(k)||groups.set(k,[]).get(k)).push(it); }
-  const keys=[...groups.keys()].sort((a,b)=> a===""?-1 : b===""?1 : coll.compare(sortName(a),sortName(b)));
-  const read=vis.filter(x=>x.read).length;
-  let html=`<p class="hint">${q?`Suche in allen ${all.length} Titeln – <b>${vis.length}</b> Treffer in ${keys.length} Reihen.`:`<b>${keys.length}</b> Reihen · <b>${vis.length}</b> Bände · ${read} gelesen · ${vis.length-read} ungelesen`}
-    <button data-act="newfree">+ Eintrag ohne ISBN</button> <button data-act="notes">Aus Apple Notes übernehmen</button></p>`;
+  let keys=[...groups.keys()].sort((a,b)=> a===""?-1 : b===""?1 : coll.compare(sortName(a),sortName(b)));
+  const nComplete=keys.filter(k=>k && meta.complete && meta.complete.has(k)).length;
+  let hiddenBooks=0;
+  if(ui.hideComplete && !q){   // komplette Reihen ausblenden (bei der Suche wird immer alles gezeigt)
+    keys=keys.filter(k=>{ const c=k && meta.complete && meta.complete.has(k); if(c) hiddenBooks+=groups.get(k).length; return !c; });
+  }
+  const shown=keys.reduce((a,k)=>a+groups.get(k).length,0);
+  const read=keys.reduce((a,k)=>a+groups.get(k).filter(x=>x.read).length,0);
+  let html=`<p class="hint">${q?`Suche in allen ${all.length} Titeln – <b>${vis.length}</b> Treffer in ${keys.length} Reihen.`:`<b>${keys.length}</b> Reihen · <b>${shown}</b> Bände · ${read} gelesen · ${shown-read} ungelesen`}
+    ${!q&&nComplete?`<button class="chip filt ${ui.hideComplete?"on":""}" data-act="hidecomplete" aria-pressed="${ui.hideComplete}">${ui.hideComplete?`${nComplete} komplette Reihen ausgeblendet (${hiddenBooks} Bände)`:`Komplette Reihen ausblenden (${nComplete})`}</button>`:""}
+    </p>`;
   if(!keys.length) html+=`<div class="empty"><p>${q?"Nichts gefunden – den Titel hast du nicht.":"Noch keine Einträge in der Sammlung."}</p></div>`;
   let nav="", lastL="";
   for(const k of keys){
@@ -855,14 +863,13 @@ function colItemHtml(it){
     <span class="vol">${esc(g.v)}</span>
     <span class="cname">${esc(name)}${(it.tags||[]).map(t=>`<span class="tag grey">${esc(t)}</span>`).join("")}${st!=="da"?`<span class="have st-${st}">${haveLabel(it)}</span>`:""}${it.note?`<span class="tag grey" title="${esc(it.note)}">Notiz</span>`:""}</span>
     <button class="readbtn ${it.read?"on":""}" data-read title="${it.read?"gelesen":"ungelesen"}" aria-pressed="${it.read}">${it.read?"gelesen":"ungelesen"}</button>
-    <button class="copy" data-edit>Bearbeiten</button>
   </div>`;
 }
 $("#main").addEventListener("click",e=>{
   if(ui.view!=="sammlung") return;
   e.stopPropagation();
   const act=e.target.closest("[data-act]");
-  if(act){ if(act.dataset.act==="newfree") showEdit(null,{status:"da"}); if(act.dataset.act==="notes") showNotesImport(); return; }
+  if(act){ if(act.dataset.act==="hidecomplete"){ ui.hideComplete=!ui.hideComplete; saveUi(); render(); } return; }
   const sec=e.target.closest("section.series"); if(!sec) return;
   const name=sec.dataset.series;
   if(e.target.closest("[data-srename]")){ renameSeries(name); return; }
@@ -893,8 +900,10 @@ function showEdit(isbn,preset={}){
   const it=isbn?items.get(isbn):{status:"da",tags:[],...preset};
   if(!it) return;
   const free=!isbn || isFree(it);
+  const heading=isbn?"Eintrag bearbeiten":(preset._heading||"Neuer Eintrag");
   const f=(id,label,val,extra="")=>`<label>${label}<input id="${id}" value="${esc(val??"")}" ${extra}></label>`;
-  openModal(`<h2>${isbn?"Eintrag bearbeiten":"Neuer Eintrag"}</h2>
+  openModal(`<h2>${esc(heading)}</h2>
+    ${!isbn&&preset._hint?`<div class="sub">${preset._hint}</div>`:""}
     <form id="edForm" class="pwform edform">
       <div class="grid2">${f("edSeries","Reihe",it.series,'list="seriesList" placeholder="z. B. Lucky Luke"')}${f("edVol","Band",it.volume,'placeholder="z. B. 17"')}</div>
       ${f("edTitle","Titel",it.title,'placeholder="Bandtitel"')}
@@ -906,15 +915,15 @@ function showEdit(isbn,preset={}){
       ${f("edTags","Tags (mit Komma getrennt)",(it.tags||[]).join(", "),'placeholder="z. B. omnibus, englisch, signiert"')}
       <div class="grid2">${f("edPub","Verlag",it.publisher)}${f("edAuth","Urheber",it.authors)}</div>
       <div class="grid2">${f("edDate","Erscheinungstermin",it.dateRaw,'placeholder="TT.MM.JJJJ, MM.JJJJ oder JJJJ"')}${f("edPrice","Preis (EUR)",it.price!=null?String(it.price).replace(".",","):"",'inputmode="decimal"')}</div>
-      ${free?f("edIsbn","ISBN (optional – falls du sie nachträglich zuordnen willst)","",'inputmode="numeric" placeholder="978-…"'):`<p class="muted small">ISBN ${esc(it.isbn)}</p>`}
+      ${free?f("edIsbn",isbn?"ISBN (optional – falls du sie nachträglich zuordnen willst)":"ISBN (optional)",isbn?"":(preset.newIsbn||""),'inputmode="numeric" placeholder="978-…"'):`<p class="muted small">ISBN ${esc(it.isbn)}</p>`}
       <label>Notiz<textarea id="edNote" rows="3">${esc(it.note||"")}</textarea></label>
       ${seriesDatalist()}
       <div class="err" id="edErr"></div>
-      <div class="actions">${isbn?`<button type="button" class="btn ghost" id="edDel">Entfernen</button><span style="flex:1"></span>`:""}<button type="button" class="btn ghost" id="cancel">Abbrechen</button><button class="btn" type="submit">Speichern</button></div>
+      <div class="actions">${isbn?`<button type="button" class="btn ghost" id="edDel">Entfernen</button><button type="button" class="btn ghost" id="edDup" title="Neuen Eintrag mit diesen Angaben anlegen, z. B. für den nächsten Band">Duplizieren</button><span style="flex:1"></span>`:""}<button type="button" class="btn ghost" id="cancel">Abbrechen</button><button class="btn" type="submit">${isbn?"Speichern":"Anlegen"}</button></div>
     </form>`);
   $("#cancel").onclick=closeModal;
-  if(isbn) $("#edDel").onclick=()=>confirmDelete(isbn);
-  setTimeout(()=>$(isbn?"#edTitle":"#edSeries").focus(),40);
+  if(isbn){ $("#edDel").onclick=()=>confirmDelete(isbn); $("#edDup").onclick=()=>showEdit(null,dupPreset(it)); }
+  setTimeout(()=>{ const el=$(preset._focus||(isbn?"#edTitle":"#edSeries")); if(el){ el.focus(); if(el.select) el.select(); } },40);
   $("#edForm").addEventListener("submit",async e=>{
     e.preventDefault();
     const dt=parseDate($("#edDate").value);
@@ -927,6 +936,29 @@ function showEdit(isbn,preset={}){
       if(item.series && ui.view==="sammlung") { ui.colOpen.add(item.series); render(); } }
     catch(err){ $("#edErr").textContent=dbErr(err); }
   });
+}
+
+/* Vorbelegung für „Duplizieren“: gleiche Reihe, nächster Band, Titel/ISBN/Termin leer */
+function dupPreset(it){
+  const g=groupOf(it);
+  const series=it.series||g.s||"";
+  const vol=it.series?(it.volume||""):(g.v||"");
+  const m=String(vol).match(/^(\d+)(.*)$/);
+  const next=m?String(+m[1]+1):"";
+  const p={series, volume:next, title:"", subtitle:"", status:it.status||"da", read:false, tags:(it.tags||[]).slice(),
+    publisher:it.publisher||"", authors:it.authors||"", dateRaw:"", price:it.price, note:"",
+    _heading:"Kopie anlegen", _hint:`Vorlage: ${esc(dispTitle(it))}${dispSub(it)?" · "+esc(dispSub(it)):""}. Reihe, Verlag, Urheber, Tags und Preis sind übernommen${next?`, Band auf ${next} gesetzt`:""}.`,
+    _focus:next?"#edTitle":"#edVol"};
+  if(!series){ p.title=it.title||""; p.subtitle=it.subtitle||""; p._focus="#edTitle"; }   // ohne Reihe: Titel als Ausgangspunkt
+  return p;
+}
+/* „+ Titel“ → manuell anlegen, Suchtext übernehmen */
+function manualFromSearch(){
+  const q=($("#dnbQ")?.value||dnb.q||"").trim();
+  const digits=q.replace(/[^0-9Xx]/g,"");
+  const isIsbn=/^[\d\sXx-]+$/.test(q) && (digits.length===13||digits.length===10);
+  showEdit(null,{status:ui.view==="sammlung"?"da":"interessant", title:isIsbn?"":q, newIsbn:isIsbn?q:"", _heading:"Titel manuell anlegen",
+    _hint:"Alle Angaben selbst eintragen – z. B. wenn die Nationalbibliothek nicht erreichbar ist oder einen Titel nicht kennt.", _focus:isIsbn?"#edTitle":"#edSeries"});
 }
 
 /* ---------- Apple-Notes-Bestandsliste → Einträge ---------- */
