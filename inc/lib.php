@@ -6,7 +6,7 @@
 declare(strict_types=1);
 
 const APP_NAME    = 'Comic-Planer';
-const APP_VERSION = '2.0.1';
+const APP_VERSION = '2.1.0';
 const APP_SOURCE_URL = 'https://github.com/metapixel/Comicplaner';   // AGPL §13: Quellcode für Nutzer erreichbar halten
 const STATUSES    = ['interessant', 'kaufen', 'bestellt', 'da', 'verworfen'];
 

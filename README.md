@@ -1,6 +1,6 @@
 # Comic-Planer
 
-Aktuelle Version: **2.0.1**
+Aktuelle Version: **2.1.0**
 
 Monatsplanung für die Comic-Merkliste aus VLB-TIX – mit Import, Dublettenprüfung, Status pro Titel und Änderungsverlauf. Läuft auf jedem normalen Webspace mit PHP und MySQL/MariaDB und lässt sich auf iPhone, iPad und Mac als App installieren (PWA).
 
@@ -64,6 +64,7 @@ Alle Dateien überschreiben – **außer `inc/config.php`**. Die Daten in der Da
 
 ## Versionen
 
+- 2.1.0 – Titel manuell anlegen direkt aus „+ Titel“ (auch wenn die DNB nicht erreichbar ist), Einträge duplizieren (nächster Band), Filter „Komplette Reihen ausblenden“ in der Sammlung
 - 2.0.1 – Lizenz auf AGPL-3.0-or-later umgestellt, Quellcode-Link in der Fußleiste, Drittanbieter-Lizenzen beigelegt
 - 2.0.0 – Mehrere Nutzer mit getrennten Sammlungen, Nutzerverwaltung für Admins, Anmeldung mit Benutzername
 - 1.3.1 – Darstellung der Datei-Auswahlbox korrigiert
