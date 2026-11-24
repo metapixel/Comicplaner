@@ -6,6 +6,7 @@
  */
 declare(strict_types=1);
 require __DIR__ . '/inc/lib.php';
+require __DIR__ . '/inc/covers.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
@@ -32,10 +33,14 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $body = [];
 if ($method === 'POST') {
     if (!check_csrf($_SERVER['HTTP_X_CSRF_TOKEN'] ?? null)) fail('Sitzung abgelaufen – bitte Seite neu laden.', 403);
-    $raw = file_get_contents('php://input') ?: '';
-    if (strlen($raw) > 8 * 1024 * 1024) fail('Datei zu groß', 413);
-    $body = json_decode($raw, true);
-    if (!is_array($body)) fail('Ungültige Anfrage');
+    if ($action === 'coverUpload') {   // Bild-Upload kommt als multipart/form-data
+        $body = $_POST;
+    } else {
+        $raw = file_get_contents('php://input') ?: '';
+        if (strlen($raw) > 8 * 1024 * 1024) fail('Datei zu groß', 413);
+        $body = json_decode($raw, true);
+        if (!is_array($body)) fail('Ungültige Anfrage');
+    }
 }
 // frischer CSRF-Schlüssel (z. B. wenn die Seite aus dem Offline-Speicher kam)
 if ($action === 'csrf') out(['ok' => true, 'csrf' => csrf_token()]);
@@ -119,6 +124,7 @@ case 'list':
             'changedAt' => iso($r['changed_at']), 'source' => $r['source'] ?? 'vlb',
             'series' => $r['series'] ?? '', 'volume' => $r['volume'] ?? '', 'read' => (bool)($r['is_read'] ?? 0),
             'tags' => ($r['tags'] ?? '') === '' ? [] : explode(',', $r['tags']),
+            'cover' => $r['cover'] ?? '', 'coverVer' => (int)($r['cover_ver'] ?? 0),
             'history' => $hist[$r['isbn']] ?? [],
         ];
     }
@@ -171,6 +177,7 @@ case 'delete':
     $pdo->prepare('DELETE FROM ' . t('history') . ' WHERE user_id = ? AND isbn = ?')->execute([$U, $isbn]);
     $pdo->prepare('DELETE ii FROM ' . t('import_items') . ' ii JOIN ' . t('imports') . ' i ON i.id = ii.import_id WHERE i.user_id = ? AND ii.isbn = ?')->execute([$U, $isbn]);
     $pdo->commit();
+    cover_delete_manual($U, $isbn);
     out(['ok' => true]);
 
 case 'import':
@@ -339,7 +346,8 @@ case 'save':   // Eintrag anlegen oder bearbeiten
             $pdo->prepare('UPDATE ' . t('comics') . " SET $set, status = ?" . ($old !== $st ? ', status_at = UTC_TIMESTAMP()' : '') . ' WHERE user_id = ? AND isbn = ?')
                 ->execute(array_merge(array_values($f), [$st, $U, $key]));
             if ($newIsbn !== '' && $newIsbn !== $key) {   // freiem Eintrag eine ISBN geben
-                $pdo->prepare('UPDATE ' . t('comics') . ' SET isbn = ? WHERE user_id = ? AND isbn = ?')->execute([$newIsbn, $U, $key]);
+                $pdo->prepare('UPDATE ' . t('comics') . " SET isbn = ?, cover = IF(cover = 'manual', cover, ''), cover_at = NULL WHERE user_id = ? AND isbn = ?")->execute([$newIsbn, $U, $key]);
+                cover_rename_manual($U, $key, $newIsbn);
                 $pdo->prepare('UPDATE ' . t('history') . ' SET isbn = ? WHERE user_id = ? AND isbn = ?')->execute([$newIsbn, $U, $key]);
                 $pdo->prepare('UPDATE ' . t('import_items') . ' ii JOIN ' . t('imports') . ' i ON i.id = ii.import_id SET ii.isbn = ? WHERE i.user_id = ? AND ii.isbn = ?')->execute([$newIsbn, $U, $key]);
                 $key = $newIsbn;
@@ -417,7 +425,9 @@ case 'backup':   // nur die eigenen Daten
     $s = $pdo->prepare('SELECT ii.import_id, ii.isbn FROM ' . t('import_items') . ' ii JOIN ' . t('imports') . ' i ON i.id = ii.import_id WHERE i.user_id = ?');
     $s->execute([$U]);
     $tables['import_items'] = $s->fetchAll();
-    $data = ['app' => APP_NAME, 'version' => APP_VERSION, 'schema' => SCHEMA_VERSION, 'exported' => gmdate('c'), 'user' => $ME['username'], 'tables' => $tables];
+    $covers = [];   // eigene Cover-Bilder (automatisch gefundene werden nach dem Einspielen neu gesucht)
+    foreach ($tables['comics'] as $r) if (($r['cover'] ?? '') === 'manual' && ($f = cover_file($U, $r['isbn'], 'manual'))) $covers[$r['isbn']] = base64_encode((string)file_get_contents($f));
+    $data = ['app' => APP_NAME, 'version' => APP_VERSION, 'schema' => SCHEMA_VERSION, 'exported' => gmdate('c'), 'user' => $ME['username'], 'tables' => $tables, 'covers' => $covers];
     header('Content-Disposition: attachment; filename="comic-planer-sicherung-' . preg_replace('/[^A-Za-z0-9._-]/', '', $ME['username']) . '-' . gmdate('Y-m-d') . '.json"');
     echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
@@ -427,7 +437,9 @@ case 'restore':   // ersetzt nur die eigenen Daten; interne IDs werden neu verge
     if (($body['app'] ?? '') !== APP_NAME || !is_array($body['tables'] ?? null) || !is_array($body['tables']['comics'] ?? null)) fail('Das ist keine Comic-Planer-Sicherung.');
     $T = $body['tables'];
     $COMICS = ['isbn','title','subtitle','authors','publisher','date_raw','pub_date','pub_month','price','price_sub','status','status_at','note','title_key',
-               'first_seen','first_import_id','changed_import_id','changed_at','source','series','volume','is_read','tags'];
+               'first_seen','first_import_id','changed_import_id','changed_at','source','series','volume','is_read','tags','cover','cover_ver'];
+    $coverData = is_array($body['covers'] ?? null) ? $body['covers'] : [];
+    $coverWrite = [];
     $val = fn($v) => (is_scalar($v) || $v === null) ? $v : null;
     $pdo->beginTransaction();
     try {
@@ -447,6 +459,10 @@ case 'restore':   // ersetzt nur die eigenen Daten; interne IDs werden neu verge
             $r['changed_import_id'] = $remap($r['changed_import_id'] ?? null);
             if (!isset($r['first_seen'])) $r['first_seen'] = gmdate('Y-m-d H:i:s');
             if (isset($r['status']) && !in_array($r['status'], STATUSES, true)) $r['status'] = 'interessant';
+            $origKey = (string)$r['isbn'];
+            if (isset($r['cover']) && !in_array($r['cover'], ['', 'auto', 'none', 'manual', 'off'], true)) $r['cover'] = '';
+            if (($r['cover'] ?? '') === 'auto' || ($r['cover'] ?? '') === 'none') $r['cover'] = '';   // neu suchen
+            if (($r['cover'] ?? '') === 'manual' && !isset($coverData[$origKey])) $r['cover'] = '';
             $use = array_values(array_filter($COMICS, fn($c) => array_key_exists($c, $r)));
             $isbnKey = (string)$r['isbn'];
             if (str_starts_with($isbnKey, 'F')) {   // freie IDs sind global eindeutig – bei Kollision neu vergeben
@@ -454,6 +470,7 @@ case 'restore':   // ersetzt nur die eigenen Daten; interne IDs werden neu verge
                 if ($s->fetchColumn()) { $old = $isbnKey; $isbnKey = new_free_key($pdo); $r['isbn'] = $isbnKey;
                     foreach (($T['history'] ?? []) as $i => $h) if (is_array($h) && ($h['isbn'] ?? '') === $old) $T['history'][$i]['isbn'] = $isbnKey; }
             }
+            if (($r['cover'] ?? '') === 'manual') $coverWrite[$isbnKey] = $coverData[$origKey];
             $pdo->prepare('INSERT IGNORE INTO ' . t('comics') . ' (user_id, ' . implode(', ', $use) . ') VALUES (?, ' . implode(', ', array_fill(0, count($use), '?')) . ')')
                 ->execute(array_merge([$U], array_map(fn($c) => $val($r[$c]), $use)));
             $n++;
@@ -476,7 +493,93 @@ case 'restore':   // ersetzt nur die eigenen Daten; interne IDs werden neu verge
         error_log('Comic-Planer restore: ' . $e->getMessage());
         fail('Wiederherstellung fehlgeschlagen – der bisherige Stand bleibt erhalten.', 500);
     }
+    cover_delete_user($U);
+    $lost = [];
+    foreach ($coverWrite as $key => $b64) {
+        $jpg = cover_normalize((string)base64_decode((string)$b64, true));
+        if ($jpg === null || !cover_save_manual($U, (string)$key, $jpg)) $lost[] = (string)$key;
+    }
+    if ($lost) {
+        $s = $pdo->prepare('UPDATE ' . t('comics') . " SET cover = '' WHERE user_id = ? AND isbn = ?");
+        foreach ($lost as $k) $s->execute([$U, $k]);
+    }
     out(['ok' => true, 'restored' => $n]);
+
+/* ---------- Cover ---------- */
+case 'covers':   // im Hintergrund: einige noch nicht gesuchte Cover nachladen
+    need_post($method);
+    $limit = max(1, min(8, (int)($body['limit'] ?? 6)));
+    if (!cover_ensure_dirs()) fail('Der Ordner „data“ ist nicht beschreibbar – Cover können nicht gespeichert werden.', 500);
+    $s = $pdo->prepare('SELECT isbn FROM ' . t('comics') . " WHERE user_id = ? AND isbn REGEXP '^[0-9]{13}$'
+        AND (cover = '' OR (cover = 'none' AND cover_at < UTC_TIMESTAMP() - INTERVAL 30 DAY))
+        ORDER BY cover = '' DESC, (pub_month >= DATE_FORMAT(UTC_TIMESTAMP(), '%Y-%m')) DESC, first_seen DESC LIMIT $limit");
+    $s->execute([$U]);
+    $upd = $pdo->prepare('UPDATE ' . t('comics') . ' SET cover = ?, cover_at = UTC_TIMESTAMP(), cover_ver = cover_ver + ? WHERE user_id = ? AND isbn = ? AND cover IN (\'\', \'none\')');
+    $done = []; $stopped = false; $t0 = microtime(true);
+    foreach ($s->fetchAll(PDO::FETCH_COLUMN) as $isbn) {
+        if (microtime(true) - $t0 > 20) break;   // Laufzeit begrenzen
+        $res = cover_lookup($isbn);
+        if ($res === 'error') { $stopped = true; break; }
+        $upd->execute([$res, $res === 'auto' ? 1 : 0, $U, $isbn]);
+        $done[] = $isbn;
+    }
+    $c = $pdo->prepare('SELECT COUNT(*) FROM ' . t('comics') . " WHERE user_id = ? AND isbn REGEXP '^[0-9]{13}$' AND (cover = '' OR (cover = 'none' AND cover_at < UTC_TIMESTAMP() - INTERVAL 30 DAY))");
+    $c->execute([$U]);
+    $q = $pdo->prepare('SELECT isbn, cover, cover_ver FROM ' . t('comics') . ' WHERE user_id = ? AND isbn = ?');
+    $items = [];
+    foreach ($done as $isbn) { $q->execute([$U, $isbn]); $r = $q->fetch(); if ($r) $items[] = ['isbn' => $r['isbn'], 'cover' => $r['cover'], 'coverVer' => (int)$r['cover_ver']]; }
+    out(['ok' => true, 'items' => $items, 'remaining' => (int)$c->fetchColumn(), 'stopped' => $stopped]);
+
+case 'coverFetch':   // für einen Titel jetzt automatisch suchen
+    need_post($method);
+    $isbn = v_isbn($body['isbn'] ?? null);
+    if (!preg_match('/^\d{13}$/', $isbn)) fail('Automatische Suche geht nur für Titel mit ISBN.');
+    $s = $pdo->prepare('SELECT cover FROM ' . t('comics') . ' WHERE user_id = ? AND isbn = ?'); $s->execute([$U, $isbn]);
+    $old = $s->fetchColumn();
+    if ($old === false) fail('Eintrag nicht gefunden', 404);
+    if (!cover_ensure_dirs()) fail('Der Ordner „data“ ist nicht beschreibbar – Cover können nicht gespeichert werden.', 500);
+    $res = cover_lookup($isbn);
+    if ($res === 'error') fail('Google Books und Open Library sind gerade nicht erreichbar.', 502);
+    if ($old === 'manual') cover_delete_manual($U, $isbn);
+    $pdo->prepare('UPDATE ' . t('comics') . ' SET cover = ?, cover_at = UTC_TIMESTAMP(), cover_ver = cover_ver + 1 WHERE user_id = ? AND isbn = ?')->execute([$res, $U, $isbn]);
+    $s = $pdo->prepare('SELECT cover, cover_ver FROM ' . t('comics') . ' WHERE user_id = ? AND isbn = ?'); $s->execute([$U, $isbn]); $r = $s->fetch();
+    out(['ok' => true, 'cover' => $r['cover'], 'coverVer' => (int)$r['cover_ver']]);
+
+case 'coverUpload':   // eigenes Bild
+    need_post($method);
+    $isbn = v_isbn($body['isbn'] ?? null);
+    $s = $pdo->prepare('SELECT 1 FROM ' . t('comics') . ' WHERE user_id = ? AND isbn = ?'); $s->execute([$U, $isbn]);
+    if (!$s->fetchColumn()) fail('Eintrag nicht gefunden', 404);
+    $f = $_FILES['image'] ?? null;
+    if (!$f || !is_array($f) || ($f['error'] ?? 1) !== UPLOAD_ERR_OK || !is_uploaded_file($f['tmp_name'])) {
+        $err = (int)($f['error'] ?? 0);
+        fail(in_array($err, [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true) ? 'Das Bild ist zu groß.' : 'Kein Bild empfangen.');
+    }
+    $jpg = cover_normalize((string)file_get_contents($f['tmp_name'], false, null, 0, COVER_MAX_BYTES + 1));
+    if ($jpg === null) fail('Das ist kein verwendbares Bild (JPEG, PNG, WebP oder GIF).');
+    if (!cover_save_manual($U, $isbn, $jpg)) fail('Der Ordner „data“ ist nicht beschreibbar – das Bild konnte nicht gespeichert werden.', 500);
+    $pdo->prepare('UPDATE ' . t('comics') . " SET cover = 'manual', cover_at = UTC_TIMESTAMP(), cover_ver = cover_ver + 1 WHERE user_id = ? AND isbn = ?")->execute([$U, $isbn]);
+    $s = $pdo->prepare('SELECT cover_ver FROM ' . t('comics') . ' WHERE user_id = ? AND isbn = ?'); $s->execute([$U, $isbn]);
+    out(['ok' => true, 'cover' => 'manual', 'coverVer' => (int)$s->fetchColumn()]);
+
+case 'coverRemove':   // Cover entfernen und nicht wieder automatisch suchen
+    need_post($method);
+    $isbn = v_isbn($body['isbn'] ?? null);
+    cover_delete_manual($U, $isbn);
+    $pdo->prepare('UPDATE ' . t('comics') . " SET cover = 'off', cover_at = UTC_TIMESTAMP(), cover_ver = cover_ver + 1 WHERE user_id = ? AND isbn = ?")->execute([$U, $isbn]);
+    out(['ok' => true, 'cover' => 'off']);
+
+case 'coverSettings':   // nur Admins: Google-Books-Schlüssel
+    need_admin($ME);
+    if ($method === 'POST') {
+        $key = trim((string)($body['gbooksKey'] ?? ''));
+        if ($key !== '' && !preg_match('/^[A-Za-z0-9_\-]{20,60}$/', $key)) fail('Das sieht nicht nach einem Google-API-Schlüssel aus.');
+        if ($key !== '' && ($err = cover_check_key($key)) !== '') fail($err);
+        set_setting('gbooks_key', $key);
+        if ($key !== '') $pdo->exec('UPDATE ' . t('comics') . " SET cover = '' WHERE cover = 'none'");   // mit Schlüssel neu suchen
+    }
+    $k = (string)setting('gbooks_key', '');
+    out(['ok' => true, 'hasKey' => $k !== '', 'keyHint' => $k !== '' ? substr($k, 0, 4) . '…' . substr($k, -4) : '']);
 
 case 'password':   // eigenes Passwort
     need_post($method);
@@ -546,6 +649,7 @@ case 'userDelete':
         wipe_user_data($pdo, $id);
         $pdo->prepare('DELETE FROM ' . t('users') . ' WHERE id = ?')->execute([$id]);
         $pdo->commit();
+        cover_delete_user($id);
     } catch (Throwable $e) {
         $pdo->rollBack();
         error_log('Comic-Planer userDelete: ' . $e->getMessage());

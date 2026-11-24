@@ -398,8 +398,9 @@ function itemHtml(it){
   const day=d?`<div class="day"><b>${d.getDate()}</b><span>${MSHORT[d.getMonth()]}</span></div>`:(it.month&&it.month.endsWith("-00")?`<div class="day unk"><b>${it.month.slice(0,4)}</b><span>Jahr</span></div>`:`<div class="day unk"><b>${it.month?MSHORT[+it.month.slice(5,7)-1]:"?"}</b><span>${it.month?"ohne Tag":"offen"}</span></div>`);
   const open=ui.open.has(it.isbn);
   return `<div class="item st-${st} ${open?"open":""}" data-isbn="${it.isbn}">
-    <div class="row" data-row>
+    <div class="row ${hasCover(it)?"has-cover":""}" data-row>
       ${day}
+      ${coverImg(it,"thumb")}
       <div class="ttl"><div class="t">${ui.q?`<span class="have st-${st}">${haveLabel(it)}</span> `:""}${esc(dispTitle(it))}${dispSub(it)?` <span class="sub">· ${esc(dispSub(it))}</span>`:""}<span class="tags">${it.publisher?`<span class="tag pub">${esc(shortPub(it.publisher))}</span>`:""}${it.read?`<span class="tag ok">gelesen</span>`:""}${(it.tags||[]).map(t=>`<span class="tag grey">${esc(t)}</span>`).join("")}${flags(it)}${it.note?`<span class="tag grey" title="${esc(it.note)}">Notiz</span>`:""}</span></div>
         <div class="a">${esc(it.authors)}</div></div>
       <div class="right"><span class="price mono">${eur(it.price)}</span>
@@ -408,10 +409,15 @@ function itemHtml(it){
     ${open?detailHtml(it):`<div class="detail"></div>`}
   </div>`;
 }
+/* ---------- Cover ---------- */
+const hasCover=it=>it.cover==="auto"||it.cover==="manual";
+const coverUrl=it=>hasCover(it)?`cover.php?k=${encodeURIComponent(it.isbn)}&v=${it.coverVer||0}`:"";
+const coverImg=(it,cls)=>hasCover(it)?`<img class="${cls}" src="${coverUrl(it)}" alt="" loading="lazy" decoding="async">`:"";
 function shortPub(p){ return String(p||"").replace(/\s+(Verlags\s+GmbH|GmbH(\s*&\s*Co\.?\s*KG)?|Verlag GmbH)$/i,""); }
 function detailHtml(it){
   const hist=(it.history||[]).map(h=>`<li>${new Date(h.at).toLocaleDateString("de-DE")}: ${FIELDS[h.field]||h.field} ${fmtVal(h.field,h.from)} → ${fmtVal(h.field,h.to)}</li>`).join("");
-  return `<div class="detail">
+  return `<div class="detail ${hasCover(it)?"with-cover":""}">
+    ${hasCover(it)?`<img class="dcover" src="${coverUrl(it)}" alt="Cover" loading="lazy">`:""}
     <div class="dgrid">
       <div><span>ISBN</span>${isFree(it)?`<span style="color:var(--muted)">ohne ISBN</span>`:`<span class="mono" style="font-size:13px;text-transform:none;color:var(--ink)">${it.isbn}</span> <button class="copy" data-copy="${it.isbn}">kopieren</button>`}</div>
       <div><span>Verlag</span>${esc(it.publisher)}</div>
@@ -564,6 +570,7 @@ async function load(){
   applyData(d); cachedAt=new Date().toISOString(); saveCache();
   loaded=true; setOffline(false); scheduleRender();
   if(sent) toast(`${sent} Offline-Änderung${sent>1?"en":""} übertragen`);
+  kickCovers();   // fehlende Cover im Hintergrund nachladen
 }
 let lastLoad=0;
 async function refresh(force){ if(busy || (!force && Date.now()-lastLoad<5000)) return; lastLoad=Date.now();
@@ -861,7 +868,7 @@ function colItemHtml(it){
   const name = g.name || (g.v?"Band "+g.v:"");
   return `<div class="citem st-${st}" data-isbn="${it.isbn}">
     <span class="vol">${esc(g.v)}</span>
-    <span class="cname">${esc(name)}${(it.tags||[]).map(t=>`<span class="tag grey">${esc(t)}</span>`).join("")}${st!=="da"?`<span class="have st-${st}">${haveLabel(it)}</span>`:""}${it.note?`<span class="tag grey" title="${esc(it.note)}">Notiz</span>`:""}</span>
+    <span class="cname">${coverImg(it,"cthumb")}${esc(name)}${(it.tags||[]).map(t=>`<span class="tag grey">${esc(t)}</span>`).join("")}${st!=="da"?`<span class="have st-${st}">${haveLabel(it)}</span>`:""}${it.note?`<span class="tag grey" title="${esc(it.note)}">Notiz</span>`:""}</span>
     <button class="readbtn ${it.read?"on":""}" data-read title="${it.read?"gelesen":"ungelesen"}" aria-pressed="${it.read}">${it.read?"gelesen":"ungelesen"}</button>
   </div>`;
 }
@@ -902,9 +909,19 @@ function showEdit(isbn,preset={}){
   const free=!isbn || isFree(it);
   const heading=isbn?"Eintrag bearbeiten":(preset._heading||"Neuer Eintrag");
   const f=(id,label,val,extra="")=>`<label>${label}<input id="${id}" value="${esc(val??"")}" ${extra}></label>`;
+  const canAuto=isbn?!isFree(it):false;
   openModal(`<h2>${esc(heading)}</h2>
     ${!isbn&&preset._hint?`<div class="sub">${preset._hint}</div>`:""}
     <form id="edForm" class="pwform edform">
+      <div class="covbox" id="covBox">
+        <div class="covprev" id="covPrev">${isbn&&hasCover(it)?`<img src="${coverUrl(it)}" alt="Cover">`:`<span>Kein Cover</span>`}</div>
+        <div class="covacts">
+          <label class="covdrop" id="covDrop" tabindex="0"><input type="file" id="covFile" accept="image/*" hidden>
+            <b>Bild wählen</b> oder hierher ziehen<br><span class="muted small">auch Einfügen aus der Zwischenablage (⌘V) geht</span></label>
+          <div class="covbtns">${canAuto?`<button type="button" class="copy" id="covAuto">Automatisch suchen</button>`:""}${isbn&&hasCover(it)?`<button type="button" class="copy" id="covDel">Cover entfernen</button>`:""}</div>
+          <div class="muted small" id="covMsg">${isbn?(it.cover==="manual"?"Eigenes Bild":it.cover==="auto"?"Automatisch gefunden":it.cover==="none"?"Automatisch nichts gefunden":it.cover==="off"?"Automatische Suche abgeschaltet":isFree(it)?"":"Wird automatisch gesucht"):"Das Bild wird beim Anlegen gespeichert."}</div>
+        </div>
+      </div>
       <div class="grid2">${f("edSeries","Reihe",it.series,'list="seriesList" placeholder="z. B. Lucky Luke"')}${f("edVol","Band",it.volume,'placeholder="z. B. 17"')}</div>
       ${f("edTitle","Titel",it.title,'placeholder="Bandtitel"')}
       ${f("edSub","Untertitel",it.subtitle)}
@@ -923,6 +940,7 @@ function showEdit(isbn,preset={}){
     </form>`);
   $("#cancel").onclick=closeModal;
   if(isbn){ $("#edDel").onclick=()=>confirmDelete(isbn); $("#edDup").onclick=()=>showEdit(null,dupPreset(it)); }
+  coverControls(isbn);
   setTimeout(()=>{ const el=$(preset._focus||(isbn?"#edTitle":"#edSeries")); if(el){ el.focus(); if(el.select) el.select(); } },40);
   $("#edForm").addEventListener("submit",async e=>{
     e.preventDefault();
@@ -932,7 +950,10 @@ function showEdit(isbn,preset={}){
       publisher:$("#edPub").value.trim(), authors:$("#edAuth").value.trim(), dateRaw:dt.dateRaw, date:dt.date, month:dt.month,
       price:parsePrice($("#edPrice").value), note:$("#edNote").value, newIsbn:free&&$("#edIsbn")?$("#edIsbn").value.trim():""};
     item.titleKey=titleKey(dispTitle(item),dispSub(item));
-    try{ const r=await api("save",{item}); await load(); closeModal(); toast(isbn?"Gespeichert":"Eintrag angelegt");
+    try{ const r=await api("save",{item});
+      if(!isbn && pendingCover){ try{ await uploadCover(r.isbn,pendingCover); }catch(err){ toast(dbErr(err)); } }
+      pendingCover=null;
+      await load(); closeModal(); toast(isbn?"Gespeichert":"Eintrag angelegt"); kickCovers();
       if(item.series && ui.view==="sammlung") { ui.colOpen.add(item.series); render(); } }
     catch(err){ $("#edErr").textContent=dbErr(err); }
   });
@@ -1187,3 +1208,106 @@ function userDelete(u){
   $("#go").onclick=async()=>{ try{ await api("userDelete",{id:u.id}); toast("Nutzer gelöscht"); showUsers(); }catch(err){ $("#uErr").textContent=dbErr(err); } };
 }
 document.getElementById("usersBtn")?.addEventListener("click",showUsers);
+
+/* ---------- Cover: Dialog, Hochladen, Hintergrundsuche ---------- */
+let pendingCover=null;
+async function shrinkImage(file){   // im Browser verkleinern → schneller Upload, auch vom iPhone
+  const url=URL.createObjectURL(file);
+  try{
+    const img=await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej(new Error("Bild konnte nicht gelesen werden.")); i.src=url; });
+    const w=Math.min(800,img.naturalWidth), h=Math.round(img.naturalHeight*w/img.naturalWidth);
+    const c=document.createElement("canvas"); c.width=w; c.height=h;
+    const g=c.getContext("2d"); g.fillStyle="#fff"; g.fillRect(0,0,w,h); g.drawImage(img,0,0,w,h);
+    return await new Promise(res=>c.toBlob(b=>res(b||file),"image/jpeg",0.88));
+  } finally { URL.revokeObjectURL(url); }
+}
+async function uploadCover(isbn,blob){
+  const fd=new FormData(); fd.append("isbn",isbn); fd.append("image",blob,"cover.jpg");
+  let res;
+  try{ res=await fetch("api.php?a=coverUpload",{method:"POST",credentials:"same-origin",headers:{"X-CSRF-Token":CSRF},body:fd}); }
+  catch(e){ throw {code:"offline",message:"Keine Verbindung zum Server."}; }
+  const d=await res.json().catch(()=>null);
+  if(!res.ok||!d||!d.ok) throw {code:"server",message:(d&&d.error)||"Upload fehlgeschlagen"};
+  const it=items.get(isbn); if(it){ it.cover=d.cover; it.coverVer=d.coverVer; saveCache(); }
+  return d;
+}
+function coverControls(isbn){
+  pendingCover=null;
+  const box=$("#covBox"); if(!box) return;
+  const prev=$("#covPrev"), msg=$("#covMsg");
+  const show=(src,text)=>{ prev.innerHTML=src?`<img src="${src}" alt="Cover">`:`<span>Kein Cover</span>`; if(text!==undefined) msg.textContent=text; };
+  const take=async file=>{
+    if(!file || !/^image\//.test(file.type||"image/")){ msg.textContent="Das ist kein Bild."; return; }
+    msg.textContent="Bereite Bild vor …";
+    let blob; try{ blob=await shrinkImage(file); }catch(e){ msg.textContent=e.message; return; }
+    const local=URL.createObjectURL(blob);
+    if(!isbn){ pendingCover=blob; show(local,"Wird beim Anlegen gespeichert."); return; }
+    show(local,"Lade hoch …");
+    try{ await uploadCover(isbn,blob); msg.textContent="Eigenes Bild gespeichert."; render(); }
+    catch(e){ msg.textContent=dbErr(e); }
+  };
+  $("#covFile").addEventListener("change",e=>take(e.target.files[0]));
+  const drop=$("#covDrop");
+  ["dragenter","dragover"].forEach(ev=>box.addEventListener(ev,e=>{ e.preventDefault(); box.classList.add("drag"); }));
+  ["dragleave","drop"].forEach(ev=>box.addEventListener(ev,e=>{ e.preventDefault(); box.classList.remove("drag"); }));
+  box.addEventListener("drop",e=>take(e.dataTransfer.files[0]));
+  drop.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); $("#covFile").click(); } });
+  const onPaste=e=>{ const f=[...(e.clipboardData?.files||[])].find(x=>/^image\//.test(x.type)); if(f){ e.preventDefault(); take(f); } };
+  $("#modal").addEventListener("paste",onPaste);
+  const auto=$("#covAuto");
+  if(auto) auto.onclick=async()=>{ msg.textContent="Suche bei Google Books und Open Library …"; auto.disabled=true;
+    try{ const d=await api("coverFetch",{isbn}); const it=items.get(isbn); it.cover=d.cover; it.coverVer=d.coverVer; saveCache(); render();
+      show(hasCover(it)?coverUrl(it):"", hasCover(it)?"Automatisch gefunden.":"Leider nichts gefunden – du kannst ein eigenes Bild verwenden."); }
+    catch(e){ msg.textContent=dbErr(e); } auto.disabled=false; };
+  const del=$("#covDel");
+  if(del) del.onclick=async()=>{ try{ await api("coverRemove",{isbn}); const it=items.get(isbn); it.cover="off"; saveCache(); render(); show("","Cover entfernt – es wird nicht mehr automatisch gesucht."); del.remove(); }
+    catch(e){ msg.textContent=dbErr(e); } };
+}
+/* Hintergrund: fehlende Cover nach und nach nachladen (nur online, nur sichtbare Seite) */
+let coverRun=false, coverPause=0;
+function kickCovers(){ setTimeout(runCovers,800); }
+async function runCovers(){
+  if(coverRun || offline || document.visibilityState!=="visible" || Date.now()<coverPause) return;
+  const pending=[...items.values()].some(it=>/^\d{13}$/.test(it.isbn) && it.cover==="");
+  if(!pending) return;
+  coverRun=true;
+  try{
+    for(let round=0; round<60; round++){
+      if(offline || document.visibilityState!=="visible") break;
+      const r=await api("covers",{limit:6});
+      for(const x of r.items){ const it=items.get(x.isbn); if(it){ it.cover=x.cover; it.coverVer=x.coverVer; } }
+      if(r.items.some(x=>x.cover==="auto")) scheduleRender();
+      saveCache();
+      if(r.stopped){ coverPause=Date.now()+15*60*1000; break; }   // Dienste nicht erreichbar → später nochmal
+      if(!r.remaining || !r.items.length) break;
+      await new Promise(res=>setTimeout(res,1200));
+    }
+  }catch(e){ coverPause=Date.now()+5*60*1000; }
+  coverRun=false;
+}
+
+/* ---------- Cover-Einstellungen (Admin) ---------- */
+async function showCoverSettings(){
+  menuPop.hidden=true;
+  if(offline){ toast("Geht nur mit Verbindung"); return; }
+  let st; try{ st=await api("coverSettings"); }catch(e){ toast(dbErr(e)); return; }
+  openModal(`<h2>Cover-Einstellungen</h2>
+    <div class="sub">Cover werden automatisch bei <b>Google Books</b> und <b>Open Library</b> gesucht. Google liefert nur mit einem eigenen, kostenlosen API-Schlüssel (rund 1.000 Abfragen pro Tag) – ohne Schlüssel wird nur Open Library gefragt, das deutsche Comics kaum kennt. Eigene Bilder kannst du immer im Bearbeiten-Dialog hinzufügen.</div>
+    <form id="csForm" class="pwform">
+      <label>Google-Books-API-Schlüssel ${st.hasKey?`<span class="muted">(gespeichert: ${esc(st.keyHint)})</span>`:""}<input id="csKey" autocomplete="off" spellcheck="false" placeholder="${st.hasKey?"leer lassen und speichern = Schlüssel entfernen":"AIza…"}"></label>
+      <details class="small"><summary>So bekommst du einen Schlüssel</summary>
+        <ol class="muted small"><li>Auf <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console.cloud.google.com</a> mit einem Google-Konto anmelden und ein Projekt anlegen.</li>
+        <li>„APIs &amp; Dienste“ → „Bibliothek“ → „Books API“ aktivieren.</li>
+        <li>„Anmeldedaten“ → „Anmeldedaten erstellen“ → „API-Schlüssel“. Optional unter „API-Einschränkungen“ auf „Books API“ begrenzen.</li>
+        <li>Schlüssel hier einfügen. Es fallen keine Kosten an, eine Zahlungsmethode ist nicht nötig.</li></ol></details>
+      <div class="err" id="csErr"></div>
+      <div class="actions"><button type="button" class="btn ghost" id="cancel">Schließen</button><button class="btn" type="submit">Speichern</button></div>
+    </form>`);
+  $("#cancel").onclick=closeModal;
+  $("#csForm").addEventListener("submit",async e=>{ e.preventDefault(); $("#csErr").textContent="Prüfe Schlüssel …";
+    try{ const r=await api("coverSettings",{gbooksKey:$("#csKey").value.trim()}); closeModal();
+      toast(r.hasKey?"Schlüssel gespeichert – fehlende Cover werden jetzt gesucht":"Schlüssel entfernt");
+      if(r.hasKey){ coverPause=0; await load(); } }
+    catch(err){ $("#csErr").textContent=dbErr(err); } });
+}
+document.getElementById("coverSetBtn")?.addEventListener("click",showCoverSettings);

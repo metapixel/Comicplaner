@@ -15,3 +15,8 @@ _archiv/
 Thumbs.db
 .idea/
 .vscode/
+
+# Cover-Bilder (werden auf dem Webspace angelegt)
+data/*
+!data/.htaccess
+!data/index.php
