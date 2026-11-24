@@ -14,3 +14,5 @@ Die Schriftdateien stammen aus den Fontsource-Paketen (https://fontsource.org) u
 ## Daten
 
 Titeldaten, die über „+ Titel“ von der Deutschen Nationalbibliothek abgerufen werden, stehen unter CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/). Es werden keine Daten der DNB im Repository mitgeliefert.
+
+Cover-Bilder werden zur Laufzeit von der **Google Books API** (https://developers.google.com/books) und von **Open Library Covers** (https://openlibrary.org/dev/docs/api/covers) abgerufen und nur auf dem eigenen Webspace zwischengespeichert. Die Bilder sind urheberrechtlich geschützt (Verlage/Zeichner) und nur für die private, passwortgeschützte Nutzung gedacht; sie sind nicht Teil dieses Repositorys.

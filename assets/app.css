@@ -262,7 +262,7 @@ section.series.closed .caret{transform:rotate(-90deg)}
 .sacts{margin-left:auto;display:none;gap:12px}
 section.series:not(.closed) .sacts{display:flex}
 .sitems{border-top:1px dashed var(--line);padding:4px 0}
-.citem{display:grid;grid-template-columns:48px 1fr auto auto;gap:10px;align-items:center;padding:6px 14px;cursor:pointer}
+.citem{display:grid;grid-template-columns:48px 1fr auto;gap:10px;align-items:center;padding:6px 14px;cursor:pointer}
 .citem:hover{background:#F8F1EA}
 .citem .vol{font-family:"Bricolage Grotesque";font-weight:700;color:var(--plum);text-align:right}
 .citem .cname{min-width:0}
@@ -285,7 +285,6 @@ body.is-offline #importBtn,body.is-offline #addBtn{opacity:.45}
   body.view-col .layout{grid-template-columns:1fr}
   .letters{flex-direction:row;flex-wrap:wrap}
   .citem{grid-template-columns:34px 1fr auto;padding:7px 10px}
-  .citem [data-edit]{display:none}
   .viewseg button{padding:8px 10px}
 }
 body.view-col #range{display:none}
@@ -303,3 +302,35 @@ body.view-col #range{display:none}
 @media (max-width:640px){ .utbl th:nth-child(4),.utbl td:nth-child(4){display:none} }
 
 .appfoot a,.ver a{color:inherit}
+
+/* ---------- 2.1: Filter-Chip in der Sammlung, Fehlerzeile mit Link ---------- */
+.hint .chip.filt{text-decoration:none;font-size:12.5px;padding:4px 10px;color:var(--ink)}
+.hint .chip.filt.on{color:#fff}
+#dnbErr .linkbtn{margin:0 0 0 6px}
+
+/* ---------- 2.2: Cover ---------- */
+.row.has-cover{grid-template-columns:52px 34px 1fr auto}
+.thumb{width:34px;height:50px;object-fit:cover;border-radius:4px;box-shadow:0 1px 3px rgba(42,27,37,.25);background:#eee}
+.detail.with-cover{display:grid;grid-template-columns:110px 1fr;gap:6px 18px}
+.detail.with-cover>*:not(.dcover){grid-column:2}
+.dcover{grid-row:1 / span 4;width:110px;border-radius:6px;box-shadow:0 2px 8px rgba(42,27,37,.25);align-self:start}
+.cthumb{width:22px;height:32px;object-fit:cover;border-radius:3px;vertical-align:middle;margin-right:8px;box-shadow:0 1px 2px rgba(42,27,37,.25)}
+.covbox{display:grid;grid-template-columns:96px 1fr;gap:14px;align-items:start;margin-bottom:14px;padding:10px;border:1px dashed transparent;border-radius:12px}
+.covbox.drag{border-color:var(--plum);background:var(--plum-l)}
+.covprev{width:96px;height:140px;border-radius:8px;background:#fff;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.covprev img{width:100%;height:100%;object-fit:cover}
+.covprev span{font-size:11px;color:var(--muted);text-align:center;padding:6px}
+.covdrop{display:block;border:2px dashed var(--line);border-radius:10px;padding:12px;text-align:center;cursor:pointer;background:#fff;color:var(--ink);font-size:13.5px;line-height:1.5}
+.covdrop:hover,.covdrop:focus{border-color:var(--plum);outline:none}
+.covbtns{display:flex;gap:14px;margin:8px 0 4px}
+@media (max-width:860px){
+  .row.has-cover{grid-template-columns:42px 30px 1fr}
+  .thumb{width:30px;height:44px}
+  .detail.with-cover{grid-template-columns:80px 1fr}
+  .dcover{width:80px}
+}
+.covdrop input[type=file]{display:none}
+.item.open .detail.with-cover{display:grid}
+.pwform .chk{display:flex;gap:8px;align-items:center}
+.pwform .chk input{display:inline-block;width:auto;margin:0}
+@media (max-width:520px){ .covbox{grid-template-columns:72px 1fr;gap:10px;padding:6px} .covprev{width:72px;height:105px} .covbtns{flex-wrap:wrap;gap:6px 14px} }

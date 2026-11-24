@@ -43,12 +43,12 @@ const ui = {
   q:"", pub:"", range:"ab",
   statuses:new Set(["interessant","kaufen","bestellt","da"]),
   open:new Set(), closed:new Set(), view:"liste", maybe:false, table:false,
-  colStatuses:new Set(["da","bestellt","kaufen"]), colOpen:new Set()
+  colStatuses:new Set(["da","bestellt","kaufen"]), colOpen:new Set(), hideComplete:false
 };
 try{ const s=JSON.parse(localStorage.getItem(UI_KEY)||"null");
-  if(s){ ui.range=s.range||ui.range; if(s.view) ui.view=s.view; ui.maybe=!!s.maybe; if(Array.isArray(s.statuses)) ui.statuses=new Set(s.statuses); if(Array.isArray(s.closed)) ui.closed=new Set(s.closed); if(Array.isArray(s.colStatuses)) ui.colStatuses=new Set(s.colStatuses); }
+  if(s){ ui.range=s.range||ui.range; if(s.view) ui.view=s.view; ui.maybe=!!s.maybe; if(Array.isArray(s.statuses)) ui.statuses=new Set(s.statuses); if(Array.isArray(s.closed)) ui.closed=new Set(s.closed); if(Array.isArray(s.colStatuses)) ui.colStatuses=new Set(s.colStatuses); ui.hideComplete=!!s.hideComplete; }
 }catch(e){}
-function saveUi(){ try{ localStorage.setItem(UI_KEY, JSON.stringify({range:ui.range,statuses:[...ui.statuses],closed:[...ui.closed],view:ui.view,maybe:ui.maybe,colStatuses:[...ui.colStatuses]})); }catch(e){} }
+function saveUi(){ try{ localStorage.setItem(UI_KEY, JSON.stringify({range:ui.range,statuses:[...ui.statuses],closed:[...ui.closed],view:ui.view,maybe:ui.maybe,colStatuses:[...ui.colStatuses],hideComplete:ui.hideComplete})); }catch(e){} }
 
 const $ = s=>document.querySelector(s);
 const esc = s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -398,8 +398,9 @@ function itemHtml(it){
   const day=d?`<div class="day"><b>${d.getDate()}</b><span>${MSHORT[d.getMonth()]}</span></div>`:(it.month&&it.month.endsWith("-00")?`<div class="day unk"><b>${it.month.slice(0,4)}</b><span>Jahr</span></div>`:`<div class="day unk"><b>${it.month?MSHORT[+it.month.slice(5,7)-1]:"?"}</b><span>${it.month?"ohne Tag":"offen"}</span></div>`);
   const open=ui.open.has(it.isbn);
   return `<div class="item st-${st} ${open?"open":""}" data-isbn="${it.isbn}">
-    <div class="row" data-row>
+    <div class="row ${hasCover(it)?"has-cover":""}" data-row>
       ${day}
+      ${coverImg(it,"thumb")}
       <div class="ttl"><div class="t">${ui.q?`<span class="have st-${st}">${haveLabel(it)}</span> `:""}${esc(dispTitle(it))}${dispSub(it)?` <span class="sub">· ${esc(dispSub(it))}</span>`:""}<span class="tags">${it.publisher?`<span class="tag pub">${esc(shortPub(it.publisher))}</span>`:""}${it.read?`<span class="tag ok">gelesen</span>`:""}${(it.tags||[]).map(t=>`<span class="tag grey">${esc(t)}</span>`).join("")}${flags(it)}${it.note?`<span class="tag grey" title="${esc(it.note)}">Notiz</span>`:""}</span></div>
         <div class="a">${esc(it.authors)}</div></div>
       <div class="right"><span class="price mono">${eur(it.price)}</span>
@@ -408,10 +409,15 @@ function itemHtml(it){
     ${open?detailHtml(it):`<div class="detail"></div>`}
   </div>`;
 }
+/* ---------- Cover ---------- */
+const hasCover=it=>it.cover==="auto"||it.cover==="manual";
+const coverUrl=it=>hasCover(it)?`cover.php?k=${encodeURIComponent(it.isbn)}&v=${it.coverVer||0}`:"";
+const coverImg=(it,cls)=>hasCover(it)?`<img class="${cls}" src="${coverUrl(it)}" alt="" loading="lazy" decoding="async">`:"";
 function shortPub(p){ return String(p||"").replace(/\s+(Verlags\s+GmbH|GmbH(\s*&\s*Co\.?\s*KG)?|Verlag GmbH)$/i,""); }
 function detailHtml(it){
   const hist=(it.history||[]).map(h=>`<li>${new Date(h.at).toLocaleDateString("de-DE")}: ${FIELDS[h.field]||h.field} ${fmtVal(h.field,h.from)} → ${fmtVal(h.field,h.to)}</li>`).join("");
-  return `<div class="detail">
+  return `<div class="detail ${hasCover(it)?"with-cover":""}">
+    ${hasCover(it)?`<img class="dcover" src="${coverUrl(it)}" alt="Cover" loading="lazy">`:""}
     <div class="dgrid">
       <div><span>ISBN</span>${isFree(it)?`<span style="color:var(--muted)">ohne ISBN</span>`:`<span class="mono" style="font-size:13px;text-transform:none;color:var(--ink)">${it.isbn}</span> <button class="copy" data-copy="${it.isbn}">kopieren</button>`}</div>
       <div><span>Verlag</span>${esc(it.publisher)}</div>
@@ -422,7 +428,7 @@ function detailHtml(it){
     </div>
     <textarea data-note placeholder="Notiz, z. B. wo bestellt, Variant-Cover, Budget …">${esc(it.note||"")}</textarea>
     ${hist?`<ul class="hist">${hist}</ul>`:""}
-    <div class="detail-actions"><label class="chk"><input type="checkbox" data-readchk ${it.read?"checked":""}> gelesen</label><span style="flex:1"></span><button class="copy" data-edit>Bearbeiten</button><button class="copy" data-del>Titel entfernen</button></div>
+    <div class="detail-actions"><label class="chk"><input type="checkbox" data-readchk ${it.read?"checked":""}> gelesen</label><span style="flex:1"></span><button class="copy" data-edit>Bearbeiten</button></div>
   </div>`;
 }
 
@@ -449,8 +455,6 @@ $("#main").addEventListener("click",e=>{
   const isbn=item.dataset.isbn;
   const sb=e.target.closest(".seg button");
   if(sb){ setStatus(isbn,sb.dataset.s); return; }
-  const del=e.target.closest("[data-del]");
-  if(del){ confirmDelete(isbn); return; }
   if(e.target.closest("[data-edit]")){ showEdit(isbn); return; }
   if(e.target.closest("[data-readchk]")){ setRead(isbn, e.target.closest("[data-readchk]").checked); return; }
   if(e.target.closest("[data-row]")){
@@ -566,6 +570,7 @@ async function load(){
   applyData(d); cachedAt=new Date().toISOString(); saveCache();
   loaded=true; setOffline(false); scheduleRender();
   if(sent) toast(`${sent} Offline-Änderung${sent>1?"en":""} übertragen`);
+  kickCovers();   // fehlende Cover im Hintergrund nachladen
 }
 let lastLoad=0;
 async function refresh(force){ if(busy || (!force && Date.now()-lastLoad<5000)) return; lastLoad=Date.now();
@@ -725,10 +730,12 @@ function showAddDialog(){
     <div class="actions dnbactions" id="dnbActions" hidden>
       <label class="chk">Status <select id="dnbStatus">${STATUS.filter(x=>x.k!=="verworfen").map(x=>`<option value="${x.k}">${x.l}</option>`).join("")}</select></label>
       <span style="flex:1"></span>
+      <button class="btn ghost" type="button" data-manual>Manuell anlegen</button>
       <button class="btn ghost" id="cancel" type="button">Schließen</button>
       <button class="btn" id="dnbAdd" type="button" disabled>Hinzufügen</button>
     </div>
-    <div class="actions" id="dnbClose"><button class="btn ghost" type="button" id="cancel2">Schließen</button></div>`);
+    <div class="actions" id="dnbClose"><button class="btn ghost" type="button" data-manual>Manuell anlegen</button><span style="flex:1"></span><button class="btn ghost" type="button" id="cancel2">Schließen</button></div>`);
+  $("#modal").querySelectorAll("[data-manual]").forEach(b=>b.onclick=manualFromSearch);
   dnb.sel.clear(); dnb.items=[]; dnb.total=0;
   const q=$("#dnbQ"); q.value=dnb.q; setTimeout(()=>q.focus(),50);
   $("#dnbForm").addEventListener("submit",e=>{ e.preventDefault(); dnbSearch(q.value.trim(),1); });
@@ -754,13 +761,14 @@ async function dnbSearch(q,start,append=false){
     dnb.items=append?dnb.items.concat(items.filter(x=>!dnb.items.some(y=>y.isbn===x.isbn))):items;
     dnb.total=r.total; dnb.start=start;
     dnbRender();
-  }catch(e){ $("#dnbErr").textContent=dbErr(e); if(!append) $("#dnbRes").innerHTML=""; }
+  }catch(e){ $("#dnbErr").innerHTML=esc(dbErr(e))+` <button class="linkbtn" type="button" data-manual2>Titel stattdessen manuell anlegen</button>`;
+    $("#dnbErr [data-manual2]").onclick=manualFromSearch; if(!append) $("#dnbRes").innerHTML=""; }
   dnb.busy=false; $("#dnbGo").disabled=false;
 }
 function dnbRender(){
   const res=$("#dnbRes");
   $("#dnbActions").hidden=!dnb.items.length; $("#dnbClose").hidden=!!dnb.items.length;
-  if(!dnb.items.length){ res.innerHTML=`<p class="hint">Keine passenden gedruckten Ausgaben mit ISBN gefunden.</p>`; return; }
+  if(!dnb.items.length){ res.innerHTML=`<p class="hint">Keine passenden gedruckten Ausgaben mit ISBN gefunden – über „Manuell anlegen“ kannst du den Titel selbst eintragen.</p>`; return; }
   const sorted=dnb.items.slice().sort((a,b)=>(b.month||"").localeCompare(a.month||"")||a.title.localeCompare(b.title,"de",{numeric:true}));
   // ähnliche Titel auf der Liste (gleicher Titel, andere ISBN)
   const keys=new Map(); for(const it of items.values()){ const k=it.titleKey||titleKey(it.title,it.subtitle); if(k) keys.set(k,it); }
@@ -808,10 +816,17 @@ function renderCollection(all){
   const vis=all.filter(it=>{ if(ui.pub && it.publisher!==ui.pub) return false; return q ? qMatch(it,q) : ui.colStatuses.has(it.status||"interessant"); });
   const groups=new Map();
   for(const it of vis){ it._g=groupOf(it); const k=it._g.s; (groups.get(k)||groups.set(k,[]).get(k)).push(it); }
-  const keys=[...groups.keys()].sort((a,b)=> a===""?-1 : b===""?1 : coll.compare(sortName(a),sortName(b)));
-  const read=vis.filter(x=>x.read).length;
-  let html=`<p class="hint">${q?`Suche in allen ${all.length} Titeln – <b>${vis.length}</b> Treffer in ${keys.length} Reihen.`:`<b>${keys.length}</b> Reihen · <b>${vis.length}</b> Bände · ${read} gelesen · ${vis.length-read} ungelesen`}
-    <button data-act="newfree">+ Eintrag ohne ISBN</button> <button data-act="notes">Aus Apple Notes übernehmen</button></p>`;
+  let keys=[...groups.keys()].sort((a,b)=> a===""?-1 : b===""?1 : coll.compare(sortName(a),sortName(b)));
+  const nComplete=keys.filter(k=>k && meta.complete && meta.complete.has(k)).length;
+  let hiddenBooks=0;
+  if(ui.hideComplete && !q){   // komplette Reihen ausblenden (bei der Suche wird immer alles gezeigt)
+    keys=keys.filter(k=>{ const c=k && meta.complete && meta.complete.has(k); if(c) hiddenBooks+=groups.get(k).length; return !c; });
+  }
+  const shown=keys.reduce((a,k)=>a+groups.get(k).length,0);
+  const read=keys.reduce((a,k)=>a+groups.get(k).filter(x=>x.read).length,0);
+  let html=`<p class="hint">${q?`Suche in allen ${all.length} Titeln – <b>${vis.length}</b> Treffer in ${keys.length} Reihen.`:`<b>${keys.length}</b> Reihen · <b>${shown}</b> Bände · ${read} gelesen · ${shown-read} ungelesen`}
+    ${!q&&nComplete?`<button class="chip filt ${ui.hideComplete?"on":""}" data-act="hidecomplete" aria-pressed="${ui.hideComplete}">${ui.hideComplete?`${nComplete} komplette Reihen ausgeblendet (${hiddenBooks} Bände)`:`Komplette Reihen ausblenden (${nComplete})`}</button>`:""}
+    </p>`;
   if(!keys.length) html+=`<div class="empty"><p>${q?"Nichts gefunden – den Titel hast du nicht.":"Noch keine Einträge in der Sammlung."}</p></div>`;
   let nav="", lastL="";
   for(const k of keys){
@@ -853,16 +868,15 @@ function colItemHtml(it){
   const name = g.name || (g.v?"Band "+g.v:"");
   return `<div class="citem st-${st}" data-isbn="${it.isbn}">
     <span class="vol">${esc(g.v)}</span>
-    <span class="cname">${esc(name)}${(it.tags||[]).map(t=>`<span class="tag grey">${esc(t)}</span>`).join("")}${st!=="da"?`<span class="have st-${st}">${haveLabel(it)}</span>`:""}${it.note?`<span class="tag grey" title="${esc(it.note)}">Notiz</span>`:""}</span>
+    <span class="cname">${coverImg(it,"cthumb")}${esc(name)}${(it.tags||[]).map(t=>`<span class="tag grey">${esc(t)}</span>`).join("")}${st!=="da"?`<span class="have st-${st}">${haveLabel(it)}</span>`:""}${it.note?`<span class="tag grey" title="${esc(it.note)}">Notiz</span>`:""}</span>
     <button class="readbtn ${it.read?"on":""}" data-read title="${it.read?"gelesen":"ungelesen"}" aria-pressed="${it.read}">${it.read?"gelesen":"ungelesen"}</button>
-    <button class="copy" data-edit>Bearbeiten</button>
   </div>`;
 }
 $("#main").addEventListener("click",e=>{
   if(ui.view!=="sammlung") return;
   e.stopPropagation();
   const act=e.target.closest("[data-act]");
-  if(act){ if(act.dataset.act==="newfree") showEdit(null,{status:"da"}); if(act.dataset.act==="notes") showNotesImport(); return; }
+  if(act){ if(act.dataset.act==="hidecomplete"){ ui.hideComplete=!ui.hideComplete; saveUi(); render(); } return; }
   const sec=e.target.closest("section.series"); if(!sec) return;
   const name=sec.dataset.series;
   if(e.target.closest("[data-srename]")){ renameSeries(name); return; }
@@ -893,9 +907,21 @@ function showEdit(isbn,preset={}){
   const it=isbn?items.get(isbn):{status:"da",tags:[],...preset};
   if(!it) return;
   const free=!isbn || isFree(it);
+  const heading=isbn?"Eintrag bearbeiten":(preset._heading||"Neuer Eintrag");
   const f=(id,label,val,extra="")=>`<label>${label}<input id="${id}" value="${esc(val??"")}" ${extra}></label>`;
-  openModal(`<h2>${isbn?"Eintrag bearbeiten":"Neuer Eintrag"}</h2>
+  const canAuto=isbn?!isFree(it):false;
+  openModal(`<h2>${esc(heading)}</h2>
+    ${!isbn&&preset._hint?`<div class="sub">${preset._hint}</div>`:""}
     <form id="edForm" class="pwform edform">
+      <div class="covbox" id="covBox">
+        <div class="covprev" id="covPrev">${isbn&&hasCover(it)?`<img src="${coverUrl(it)}" alt="Cover">`:`<span>Kein Cover</span>`}</div>
+        <div class="covacts">
+          <label class="covdrop" id="covDrop" tabindex="0"><input type="file" id="covFile" accept="image/*" hidden>
+            <b>Bild wählen</b> oder hierher ziehen<br><span class="muted small">auch Einfügen aus der Zwischenablage (⌘V) geht</span></label>
+          <div class="covbtns">${canAuto?`<button type="button" class="copy" id="covAuto">Automatisch suchen</button>`:""}${isbn&&hasCover(it)?`<button type="button" class="copy" id="covDel">Cover entfernen</button>`:""}</div>
+          <div class="muted small" id="covMsg">${isbn?(it.cover==="manual"?"Eigenes Bild":it.cover==="auto"?"Automatisch gefunden":it.cover==="none"?"Automatisch nichts gefunden":it.cover==="off"?"Automatische Suche abgeschaltet":isFree(it)?"":"Wird automatisch gesucht"):"Das Bild wird beim Anlegen gespeichert."}</div>
+        </div>
+      </div>
       <div class="grid2">${f("edSeries","Reihe",it.series,'list="seriesList" placeholder="z. B. Lucky Luke"')}${f("edVol","Band",it.volume,'placeholder="z. B. 17"')}</div>
       ${f("edTitle","Titel",it.title,'placeholder="Bandtitel"')}
       ${f("edSub","Untertitel",it.subtitle)}
@@ -906,15 +932,16 @@ function showEdit(isbn,preset={}){
       ${f("edTags","Tags (mit Komma getrennt)",(it.tags||[]).join(", "),'placeholder="z. B. omnibus, englisch, signiert"')}
       <div class="grid2">${f("edPub","Verlag",it.publisher)}${f("edAuth","Urheber",it.authors)}</div>
       <div class="grid2">${f("edDate","Erscheinungstermin",it.dateRaw,'placeholder="TT.MM.JJJJ, MM.JJJJ oder JJJJ"')}${f("edPrice","Preis (EUR)",it.price!=null?String(it.price).replace(".",","):"",'inputmode="decimal"')}</div>
-      ${free?f("edIsbn","ISBN (optional – falls du sie nachträglich zuordnen willst)","",'inputmode="numeric" placeholder="978-…"'):`<p class="muted small">ISBN ${esc(it.isbn)}</p>`}
+      ${free?f("edIsbn",isbn?"ISBN (optional – falls du sie nachträglich zuordnen willst)":"ISBN (optional)",isbn?"":(preset.newIsbn||""),'inputmode="numeric" placeholder="978-…"'):`<p class="muted small">ISBN ${esc(it.isbn)}</p>`}
       <label>Notiz<textarea id="edNote" rows="3">${esc(it.note||"")}</textarea></label>
       ${seriesDatalist()}
       <div class="err" id="edErr"></div>
-      <div class="actions">${isbn?`<button type="button" class="btn ghost" id="edDel">Entfernen</button><span style="flex:1"></span>`:""}<button type="button" class="btn ghost" id="cancel">Abbrechen</button><button class="btn" type="submit">Speichern</button></div>
+      <div class="actions">${isbn?`<button type="button" class="btn ghost" id="edDel">Entfernen</button><button type="button" class="btn ghost" id="edDup" title="Neuen Eintrag mit diesen Angaben anlegen, z. B. für den nächsten Band">Duplizieren</button><span style="flex:1"></span>`:""}<button type="button" class="btn ghost" id="cancel">Abbrechen</button><button class="btn" type="submit">${isbn?"Speichern":"Anlegen"}</button></div>
     </form>`);
   $("#cancel").onclick=closeModal;
-  if(isbn) $("#edDel").onclick=()=>confirmDelete(isbn);
-  setTimeout(()=>$(isbn?"#edTitle":"#edSeries").focus(),40);
+  if(isbn){ $("#edDel").onclick=()=>confirmDelete(isbn); $("#edDup").onclick=()=>showEdit(null,dupPreset(it)); }
+  coverControls(isbn);
+  setTimeout(()=>{ const el=$(preset._focus||(isbn?"#edTitle":"#edSeries")); if(el){ el.focus(); if(el.select) el.select(); } },40);
   $("#edForm").addEventListener("submit",async e=>{
     e.preventDefault();
     const dt=parseDate($("#edDate").value);
@@ -923,10 +950,36 @@ function showEdit(isbn,preset={}){
       publisher:$("#edPub").value.trim(), authors:$("#edAuth").value.trim(), dateRaw:dt.dateRaw, date:dt.date, month:dt.month,
       price:parsePrice($("#edPrice").value), note:$("#edNote").value, newIsbn:free&&$("#edIsbn")?$("#edIsbn").value.trim():""};
     item.titleKey=titleKey(dispTitle(item),dispSub(item));
-    try{ const r=await api("save",{item}); await load(); closeModal(); toast(isbn?"Gespeichert":"Eintrag angelegt");
+    try{ const r=await api("save",{item});
+      if(!isbn && pendingCover){ try{ await uploadCover(r.isbn,pendingCover); }catch(err){ toast(dbErr(err)); } }
+      pendingCover=null;
+      await load(); closeModal(); toast(isbn?"Gespeichert":"Eintrag angelegt"); kickCovers();
       if(item.series && ui.view==="sammlung") { ui.colOpen.add(item.series); render(); } }
     catch(err){ $("#edErr").textContent=dbErr(err); }
   });
+}
+
+/* Vorbelegung für „Duplizieren“: gleiche Reihe, nächster Band, Titel/ISBN/Termin leer */
+function dupPreset(it){
+  const g=groupOf(it);
+  const series=it.series||g.s||"";
+  const vol=it.series?(it.volume||""):(g.v||"");
+  const m=String(vol).match(/^(\d+)(.*)$/);
+  const next=m?String(+m[1]+1):"";
+  const p={series, volume:next, title:"", subtitle:"", status:it.status||"da", read:false, tags:(it.tags||[]).slice(),
+    publisher:it.publisher||"", authors:it.authors||"", dateRaw:"", price:it.price, note:"",
+    _heading:"Kopie anlegen", _hint:`Vorlage: ${esc(dispTitle(it))}${dispSub(it)?" · "+esc(dispSub(it)):""}. Reihe, Verlag, Urheber, Tags und Preis sind übernommen${next?`, Band auf ${next} gesetzt`:""}.`,
+    _focus:next?"#edTitle":"#edVol"};
+  if(!series){ p.title=it.title||""; p.subtitle=it.subtitle||""; p._focus="#edTitle"; }   // ohne Reihe: Titel als Ausgangspunkt
+  return p;
+}
+/* „+ Titel“ → manuell anlegen, Suchtext übernehmen */
+function manualFromSearch(){
+  const q=($("#dnbQ")?.value||dnb.q||"").trim();
+  const digits=q.replace(/[^0-9Xx]/g,"");
+  const isIsbn=/^[\d\sXx-]+$/.test(q) && (digits.length===13||digits.length===10);
+  showEdit(null,{status:ui.view==="sammlung"?"da":"interessant", title:isIsbn?"":q, newIsbn:isIsbn?q:"", _heading:"Titel manuell anlegen",
+    _hint:"Alle Angaben selbst eintragen – z. B. wenn die Nationalbibliothek nicht erreichbar ist oder einen Titel nicht kennt.", _focus:isIsbn?"#edTitle":"#edSeries"});
 }
 
 /* ---------- Apple-Notes-Bestandsliste → Einträge ---------- */
@@ -1155,3 +1208,106 @@ function userDelete(u){
   $("#go").onclick=async()=>{ try{ await api("userDelete",{id:u.id}); toast("Nutzer gelöscht"); showUsers(); }catch(err){ $("#uErr").textContent=dbErr(err); } };
 }
 document.getElementById("usersBtn")?.addEventListener("click",showUsers);
+
+/* ---------- Cover: Dialog, Hochladen, Hintergrundsuche ---------- */
+let pendingCover=null;
+async function shrinkImage(file){   // im Browser verkleinern → schneller Upload, auch vom iPhone
+  const url=URL.createObjectURL(file);
+  try{
+    const img=await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej(new Error("Bild konnte nicht gelesen werden.")); i.src=url; });
+    const w=Math.min(800,img.naturalWidth), h=Math.round(img.naturalHeight*w/img.naturalWidth);
+    const c=document.createElement("canvas"); c.width=w; c.height=h;
+    const g=c.getContext("2d"); g.fillStyle="#fff"; g.fillRect(0,0,w,h); g.drawImage(img,0,0,w,h);
+    return await new Promise(res=>c.toBlob(b=>res(b||file),"image/jpeg",0.88));
+  } finally { URL.revokeObjectURL(url); }
+}
+async function uploadCover(isbn,blob){
+  const fd=new FormData(); fd.append("isbn",isbn); fd.append("image",blob,"cover.jpg");
+  let res;
+  try{ res=await fetch("api.php?a=coverUpload",{method:"POST",credentials:"same-origin",headers:{"X-CSRF-Token":CSRF},body:fd}); }
+  catch(e){ throw {code:"offline",message:"Keine Verbindung zum Server."}; }
+  const d=await res.json().catch(()=>null);
+  if(!res.ok||!d||!d.ok) throw {code:"server",message:(d&&d.error)||"Upload fehlgeschlagen"};
+  const it=items.get(isbn); if(it){ it.cover=d.cover; it.coverVer=d.coverVer; saveCache(); }
+  return d;
+}
+function coverControls(isbn){
+  pendingCover=null;
+  const box=$("#covBox"); if(!box) return;
+  const prev=$("#covPrev"), msg=$("#covMsg");
+  const show=(src,text)=>{ prev.innerHTML=src?`<img src="${src}" alt="Cover">`:`<span>Kein Cover</span>`; if(text!==undefined) msg.textContent=text; };
+  const take=async file=>{
+    if(!file || !/^image\//.test(file.type||"image/")){ msg.textContent="Das ist kein Bild."; return; }
+    msg.textContent="Bereite Bild vor …";
+    let blob; try{ blob=await shrinkImage(file); }catch(e){ msg.textContent=e.message; return; }
+    const local=URL.createObjectURL(blob);
+    if(!isbn){ pendingCover=blob; show(local,"Wird beim Anlegen gespeichert."); return; }
+    show(local,"Lade hoch …");
+    try{ await uploadCover(isbn,blob); msg.textContent="Eigenes Bild gespeichert."; render(); }
+    catch(e){ msg.textContent=dbErr(e); }
+  };
+  $("#covFile").addEventListener("change",e=>take(e.target.files[0]));
+  const drop=$("#covDrop");
+  ["dragenter","dragover"].forEach(ev=>box.addEventListener(ev,e=>{ e.preventDefault(); box.classList.add("drag"); }));
+  ["dragleave","drop"].forEach(ev=>box.addEventListener(ev,e=>{ e.preventDefault(); box.classList.remove("drag"); }));
+  box.addEventListener("drop",e=>take(e.dataTransfer.files[0]));
+  drop.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); $("#covFile").click(); } });
+  const onPaste=e=>{ const f=[...(e.clipboardData?.files||[])].find(x=>/^image\//.test(x.type)); if(f){ e.preventDefault(); take(f); } };
+  $("#modal").addEventListener("paste",onPaste);
+  const auto=$("#covAuto");
+  if(auto) auto.onclick=async()=>{ msg.textContent="Suche bei Google Books und Open Library …"; auto.disabled=true;
+    try{ const d=await api("coverFetch",{isbn}); const it=items.get(isbn); it.cover=d.cover; it.coverVer=d.coverVer; saveCache(); render();
+      show(hasCover(it)?coverUrl(it):"", hasCover(it)?"Automatisch gefunden.":"Leider nichts gefunden – du kannst ein eigenes Bild verwenden."); }
+    catch(e){ msg.textContent=dbErr(e); } auto.disabled=false; };
+  const del=$("#covDel");
+  if(del) del.onclick=async()=>{ try{ await api("coverRemove",{isbn}); const it=items.get(isbn); it.cover="off"; saveCache(); render(); show("","Cover entfernt – es wird nicht mehr automatisch gesucht."); del.remove(); }
+    catch(e){ msg.textContent=dbErr(e); } };
+}
+/* Hintergrund: fehlende Cover nach und nach nachladen (nur online, nur sichtbare Seite) */
+let coverRun=false, coverPause=0;
+function kickCovers(){ setTimeout(runCovers,800); }
+async function runCovers(){
+  if(coverRun || offline || document.visibilityState!=="visible" || Date.now()<coverPause) return;
+  const pending=[...items.values()].some(it=>/^\d{13}$/.test(it.isbn) && it.cover==="");
+  if(!pending) return;
+  coverRun=true;
+  try{
+    for(let round=0; round<60; round++){
+      if(offline || document.visibilityState!=="visible") break;
+      const r=await api("covers",{limit:6});
+      for(const x of r.items){ const it=items.get(x.isbn); if(it){ it.cover=x.cover; it.coverVer=x.coverVer; } }
+      if(r.items.some(x=>x.cover==="auto")) scheduleRender();
+      saveCache();
+      if(r.stopped){ coverPause=Date.now()+15*60*1000; break; }   // Dienste nicht erreichbar → später nochmal
+      if(!r.remaining || !r.items.length) break;
+      await new Promise(res=>setTimeout(res,1200));
+    }
+  }catch(e){ coverPause=Date.now()+5*60*1000; }
+  coverRun=false;
+}
+
+/* ---------- Cover-Einstellungen (Admin) ---------- */
+async function showCoverSettings(){
+  menuPop.hidden=true;
+  if(offline){ toast("Geht nur mit Verbindung"); return; }
+  let st; try{ st=await api("coverSettings"); }catch(e){ toast(dbErr(e)); return; }
+  openModal(`<h2>Cover-Einstellungen</h2>
+    <div class="sub">Cover werden automatisch bei <b>Google Books</b> und <b>Open Library</b> gesucht. Google liefert nur mit einem eigenen, kostenlosen API-Schlüssel (rund 1.000 Abfragen pro Tag) – ohne Schlüssel wird nur Open Library gefragt, das deutsche Comics kaum kennt. Eigene Bilder kannst du immer im Bearbeiten-Dialog hinzufügen.</div>
+    <form id="csForm" class="pwform">
+      <label>Google-Books-API-Schlüssel ${st.hasKey?`<span class="muted">(gespeichert: ${esc(st.keyHint)})</span>`:""}<input id="csKey" autocomplete="off" spellcheck="false" placeholder="${st.hasKey?"leer lassen und speichern = Schlüssel entfernen":"AIza…"}"></label>
+      <details class="small"><summary>So bekommst du einen Schlüssel</summary>
+        <ol class="muted small"><li>Auf <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console.cloud.google.com</a> mit einem Google-Konto anmelden und ein Projekt anlegen.</li>
+        <li>„APIs &amp; Dienste“ → „Bibliothek“ → „Books API“ aktivieren.</li>
+        <li>„Anmeldedaten“ → „Anmeldedaten erstellen“ → „API-Schlüssel“. Optional unter „API-Einschränkungen“ auf „Books API“ begrenzen.</li>
+        <li>Schlüssel hier einfügen. Es fallen keine Kosten an, eine Zahlungsmethode ist nicht nötig.</li></ol></details>
+      <div class="err" id="csErr"></div>
+      <div class="actions"><button type="button" class="btn ghost" id="cancel">Schließen</button><button class="btn" type="submit">Speichern</button></div>
+    </form>`);
+  $("#cancel").onclick=closeModal;
+  $("#csForm").addEventListener("submit",async e=>{ e.preventDefault(); $("#csErr").textContent="Prüfe Schlüssel …";
+    try{ const r=await api("coverSettings",{gbooksKey:$("#csKey").value.trim()}); closeModal();
+      toast(r.hasKey?"Schlüssel gespeichert – fehlende Cover werden jetzt gesucht":"Schlüssel entfernt");
+      if(r.hasKey){ coverPause=0; await load(); } }
+    catch(err){ $("#csErr").textContent=dbErr(err); } });
+}
+document.getElementById("coverSetBtn")?.addEventListener("click",showCoverSettings);

@@ -6,7 +6,7 @@
 declare(strict_types=1);
 
 const APP_NAME    = 'Comic-Planer';
-const APP_VERSION = '2.0.1';
+const APP_VERSION = '2.2.0';
 const APP_SOURCE_URL = 'https://github.com/metapixel/Comicplaner';   // AGPL §13: Quellcode für Nutzer erreichbar halten
 const STATUSES    = ['interessant', 'kaufen', 'bestellt', 'da', 'verworfen'];
 
@@ -173,6 +173,9 @@ function schema_sql(string $p): array {
             volume VARCHAR(40) NOT NULL DEFAULT '',
             is_read TINYINT(1) NOT NULL DEFAULT 0,
             tags VARCHAR(500) NOT NULL DEFAULT '',
+            cover VARCHAR(8) NOT NULL DEFAULT '',
+            cover_at DATETIME NULL,
+            cover_ver INT NOT NULL DEFAULT 0,
             PRIMARY KEY (user_id, isbn),
             KEY idx_series (series(191)),
             KEY idx_month (pub_month), KEY idx_status (status), KEY idx_tkey (title_key(191))
@@ -198,7 +201,7 @@ function schema_sql(string $p): array {
 }
 
 /* ---------- Schema-Aktualisierung bestehender Installationen ---------- */
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 function migrate(): void {
     $v = (int)setting('schema_version', '1');
     if ($v >= SCHEMA_VERSION) return;
@@ -239,6 +242,11 @@ function migrate(): void {
         $idx = array_column($pdo->query('SHOW INDEX FROM ' . t('imports'))->fetchAll(), 'Key_name');
         if (!in_array('idx_user', $idx, true)) $pdo->exec('ALTER TABLE ' . t('imports') . ' ADD KEY idx_user (user_id)');
         $pdo->exec('DELETE FROM ' . t('settings') . " WHERE k = 'password_hash'");
+    }
+    if ($v < 5) {   // Cover: ''=noch nicht gesucht, auto=gefunden, none=nichts gefunden, manual=eigenes Bild, off=abgeschaltet
+        $cols = array_column($pdo->query('SHOW COLUMNS FROM ' . t('comics'))->fetchAll(), 'Field');
+        foreach (['cover' => "VARCHAR(8) NOT NULL DEFAULT ''", 'cover_at' => 'DATETIME NULL', 'cover_ver' => 'INT NOT NULL DEFAULT 0'] as $c => $def)
+            if (!in_array($c, $cols, true)) $pdo->exec('ALTER TABLE ' . t('comics') . " ADD COLUMN $c $def");
     }
     set_setting('schema_version', (string)SCHEMA_VERSION);
 }

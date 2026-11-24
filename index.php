@@ -62,7 +62,7 @@ $v = rawurlencode(APP_VERSION);
         <button id="backupBtn">Sicherung herunterladen</button>
         <button id="restoreBtn">Sicherung einspielen</button>
         <button id="pwBtn">Passwort ändern</button>
-        <?php if ($ME['isAdmin']): ?><button id="usersBtn">Nutzer verwalten</button><?php endif; ?>
+        <?php if ($ME['isAdmin']): ?><button id="usersBtn">Nutzer verwalten</button><button id="coverSetBtn">Cover-Einstellungen</button><?php endif; ?>
         <form method="post" action="logout.php"><input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>"><button type="submit">Abmelden</button></form>
       </div>
     </div>
